@@ -1,10 +1,7 @@
 import traceback
 import struct
 import re
-from io import BytesIO
-from copy import copy, deepcopy
 from os import path
-from timeit import default_timer
 
 from PyQt5.QtCore import QSize, QRect, QMetaObject, QCoreApplication
 from PyQt5.QtWidgets import (QWidget, QMainWindow, QFileDialog,
@@ -13,7 +10,10 @@ from PyQt5.QtWidgets import (QWidget, QMainWindow, QFileDialog,
                              QLineEdit, QTextEdit, QListWidgetItem)
 import PyQt5.QtWidgets as QtWidgets
 import PyQt5.QtCore as QtCore
-#from bw_level_edit import catch_exception
+
+
+STARTER_DECK_OFFSET = 0x2A0A70
+CPU_DECK_OFFSET = 0x2A1316
 
 CARDS = {}
 try:
@@ -25,30 +25,6 @@ try:
 except:
     traceback.print_exc()
     CARDS = None # I guess we can't show card names then.
-
-# Algorithm taken from https://en.wikibooks.org/wiki/Algorithm_Implementation/Strings/Levenshtein_distance#Python
-# because i am a lazy person
-def levenshtein(s1, s2):
-    if len(s1) < len(s2):
-        return levenshtein(s2, s1)
-
-    # len(s1) >= len(s2)
-    if len(s2) == 0:
-        return len(s1)
-
-    previous_row = range(len(s2) + 1)
-    for i, c1 in enumerate(s1):
-        current_row = [i + 1]
-        for j, c2 in enumerate(s2):
-            insertions = previous_row[j + 1] + 1 # j+1 instead of j since previous_row and current_row are one character longer
-            deletions = current_row[j] + 1       # than s2
-            substitutions = previous_row[j] + (c1 != c2)
-            current_row.append(min(insertions, deletions, substitutions))
-        previous_row = current_row
-
-    return previous_row[-1]
-
-
 
 def get_name(card_id):
     if CARDS is None:
@@ -132,9 +108,6 @@ class DeckEditorMainWindow(QMainWindow):
 
         self.deck_list.currentItemChanged.connect(self.action_listwidget_change_item)
         self.button_set_deck.pressed.connect(self.action_button_set_deck)
-        #self.button_set_message.pressed.connect(self.action_button_set_message)
-        #self.button_add_message.pressed.connect(self.action_button_add_message)
-        #self.button_remove_message.pressed.connect(self.action_button_delete_message)
 
         self.deck_data = None
 
@@ -142,13 +115,6 @@ class DeckEditorMainWindow(QMainWindow):
         self.reset_in_process = True
         self.deck_list.clearSelection()
         self.deck_list.clear()
-        """self.stringfile = None
-        self.deck_list.clearSelection()
-        self.deck_list.clear()
-        self.textedit_content.clear()
-        self.lineedit_path.clear()
-        self.lineedit_playtime.clear()
-        self.lineedit_audioname.clear()"""
 
         self.reset_in_process = False
 
@@ -168,7 +134,6 @@ class DeckEditorMainWindow(QMainWindow):
                 else:
                     self.statusbar.showMessage("Rank is not numeric")
                     return
-
 
 
                 if leader.isnumeric():
@@ -199,7 +164,6 @@ class DeckEditorMainWindow(QMainWindow):
                     card = textedit.text()
                     if card.isnumeric():
                         card = int(card) & 0xFFF
-                        #cardname.setText(get_name(card))
                         deck_data.append(card)
                     else:
                         match = match_partly(card)
@@ -269,19 +233,10 @@ class DeckEditorMainWindow(QMainWindow):
 
                     cardname.setText(get_name(card))
 
-
-
-                """print(current.xml_ref)
-                msg = self.stringfile.messages[current.xml_ref]
-                self.lineedit_audioname.setText(msg.get_name())
-                self.lineedit_path.setText(msg.get_path())
-                self.lineedit_playtime.setText(str(msg.playtime))
-                self.textedit_content.setText(msg.get_message())"""
         except:
             traceback.print_exc()
             raise
 
-    #@catch_exception
     def button_load_decks(self):
         try:
             print("ok", self.default_path)
@@ -298,9 +253,9 @@ class DeckEditorMainWindow(QMainWindow):
 
                 with open(filepath, "rb") as f:
                     try:
-                        f.seek(0x2A0A70)
+                        f.seek(STARTER_DECK_OFFSET)
                         self.deck_data = bytearray(f.read(17*41*2)) # 17 starter decks, each 41 bytes
-                        f.seek(0x2A1316)
+                        f.seek(CPU_DECK_OFFSET)
                         self.deck_data += f.read(24*41*2) # 24 CPU decks
 
                         self.default_path = filepath
@@ -310,7 +265,7 @@ class DeckEditorMainWindow(QMainWindow):
                             leader_byte1, leader_byte2 = struct.unpack_from("BB", self.deck_data, i*41*2)
                             rank = leader_byte2 >> 4
                             leader = ((leader_byte2 & 0x0F) << 8) + leader_byte1
-                            deck = YugiohDeckEntry(starter=True, number=i, offset=0x2A0A70+i*41*2)
+                            deck = YugiohDeckEntry(starter=True, number=i, offset=STARTER_DECK_OFFSET+i*41*2)
 
                             cardname = get_name(leader)
 
@@ -322,7 +277,7 @@ class DeckEditorMainWindow(QMainWindow):
                             leader_byte1, leader_byte2 = struct.unpack_from("BB", self.deck_data, i*41*2)
                             rank = leader_byte2 >> 4
                             leader = ((leader_byte2 & 0x0F) << 8) + leader_byte1
-                            deck = YugiohDeckEntry(starter=False, number=i, offset=0x2A1316+i*41*2
+                            deck = YugiohDeckEntry(starter=False, number=i, offset=CPU_DECK_OFFSET +i*41*2
                                                    )
 
                             cardname = get_name(leader)
@@ -348,9 +303,9 @@ class DeckEditorMainWindow(QMainWindow):
             print(filepath, "saved")
             if filepath:
                 with open(filepath, "r+b") as f:
-                    f.seek(0x2A0A70)
+                    f.seek(STARTER_DECK_OFFSET)
                     f.write(self.deck_data[0:17*41*2])
-                    f.seek(0x2A1316)
+                    f.seek(CPU_DECK_OFFSET)
                     f.write(self.deck_data[17*41*2:17*41*2+24*41*2])
 
 
@@ -365,11 +320,9 @@ class DeckEditorMainWindow(QMainWindow):
         self.setMinimumSize(QSize(720, 560))
         self.setWindowTitle("Yugioh Duelist of Roses - Deck Edit")
 
-
         self.centralwidget = QWidget(self)
         self.centralwidget.setObjectName("centralwidget")
         self.setCentralWidget(self.centralwidget)
-
 
         self.horizontalLayout = QHBoxLayout(self.centralwidget)
         self.horizontalLayout.setObjectName("horizontalLayout")
@@ -380,8 +333,6 @@ class DeckEditorMainWindow(QMainWindow):
         self.vertLayoutWidget = QWidget(self.centralwidget)
         self.verticalLayout = QVBoxLayout(self.vertLayoutWidget)
         self.button_set_deck = QPushButton(self.centralwidget)
-        #self.button_remove_message = QPushButton(self.centralwidget)
-        #self.button_set_message = QPushButton(self.centralwidget)
 
         self.button_set_deck.setText("Set Deck")
 
@@ -403,7 +354,6 @@ class DeckEditorMainWindow(QMainWindow):
 
         self.card_slots = []
         self.cards_verticalWidget = QWidget(self.centralwidget)
-        #self.cards_scroll.setWidget(self.cards_verticalWidget)
 
         self.cards_vertical = QVBoxLayout(self.centralwidget)
         self.cards_verticalWidget.setLayout(self.cards_vertical)
@@ -429,18 +379,13 @@ class DeckEditorMainWindow(QMainWindow):
             self.card_slots.append((textedit, index_text, card_name_text, layout, layoutwidget))
 
             self.cards_vertical.addWidget(layoutwidget)
-            #self.verticalLayout.addWidget(self.card_slots[i])
 
-        #self.verticalLayout.addWidget(self.cards_verticalWidget)
         self.verticalLayout.addWidget(self.cards_scroll)
         self.horizontalLayout.addWidget(self.vertLayoutWidget)
 
-        self.menubar = self.menuBar()#QMenuBar(self)
-        #self.menubar.setGeometry(QRect(0, 0, 820, 30))
-        #self.menubar.setObjectName("menubar")
-        self.file_menu = self.menubar.addMenu("File")#QMenu(self.menubar)
+        self.menubar = self.menuBar()
+        self.file_menu = self.menubar.addMenu("File")
         self.file_menu.setObjectName("menuLoad")
-        #self.menubar.addMenu(self.file_menu)
 
 
         self.file_load_action = QAction("Load", self)
@@ -454,7 +399,6 @@ class DeckEditorMainWindow(QMainWindow):
         self.statusbar.setObjectName("statusbar")
         self.setStatusBar(self.statusbar)
 
-        #self.setMenuBar(self.menubar)
         print("done")
 
 

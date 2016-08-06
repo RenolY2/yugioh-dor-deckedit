@@ -188,7 +188,7 @@ class DeckEditorMainWindow(QMainWindow):
                                                                                 rank, get_name(leaderdata & 0xFFF)))
                 else:
 
-                    current.setText("[CPU] {0:>7} [rank:{1:>2}] {2}".format(leader&0xFFF,
+                    current.setText("[CPU] {0:>7} [rank:{1:>2}] {2}".format(leaderdata&0xFFF,
                                                                             rank, get_name(leaderdata & 0xFFF)))
 
                 self.leader_label.setText(get_name(leaderdata & 0xFFF))
